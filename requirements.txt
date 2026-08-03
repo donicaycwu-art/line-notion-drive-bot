@@ -1,0 +1,5 @@
+flask>=3.0.0
+line-bot-sdk>=3.5.0
+google-auth>=2.29.0
+google-api-python-client>=2.126.0
+gunicorn>=22.0.0
