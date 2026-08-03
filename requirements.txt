@@ -3,3 +3,4 @@ line-bot-sdk>=3.5.0
 google-auth>=2.29.0
 google-api-python-client>=2.126.0
 gunicorn>=22.0.0
+tzdata>=2024.1
