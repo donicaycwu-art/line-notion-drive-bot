@@ -1,4 +1,5 @@
 import io, os, pickle, base64, datetime
+from zoneinfo import ZoneInfo
 from flask import Flask, request, abort
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
@@ -11,14 +12,13 @@ from googleapiclient.http import MediaIoBaseUpload
 app = Flask(__name__)
 LINE_CHANNEL_SECRET = os.environ["LINE_CHANNEL_SECRET"]
 LINE_CHANNEL_ACCESS_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
-TARGET_USER_IDS = {uid.strip() for uid in os.environ["TARGET_USER_IDS"].split(",") if uid.strip()}
 GDRIVE_FOLDER_ID = os.environ["GDRIVE_FOLDER_ID"]
 TOKEN_FILE = "token.pickle"
+TW_TZ = ZoneInfo("Asia/Taipei")
 configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
 def get_drive_service():
-    # 優先從環境變數讀取（雲端部署用），本機沒有設定時退回讀 token.pickle 檔案
     token_b64 = os.environ.get("GDRIVE_TOKEN_B64")
     if token_b64:
         creds = pickle.loads(base64.b64decode(token_b64))
@@ -27,16 +27,36 @@ def get_drive_service():
             creds = pickle.load(f)
     return build("drive", "v3", credentials=creds)
 
+def get_daily_folder_id(service):
+    date_str = datetime.datetime.now(TW_TZ).strftime("%Y%m%d")
+    query = (
+        f"'{GDRIVE_FOLDER_ID}' in parents and name = '{date_str}' "
+        "and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    )
+    result = service.files().list(q=query, spaces="drive", fields="files(id, name)").execute()
+    folders = result.get("files", [])
+    if folders:
+        return folders[0]["id"]
+    folder_metadata = {
+        "name": date_str,
+        "mimeType": "application/vnd.google-apps.folder",
+        "parents": [GDRIVE_FOLDER_ID],
+    }
+    folder = service.files().create(body=folder_metadata, fields="id").execute()
+    return folder.get("id")
+
 def upload_to_drive(file_content, filename, mimetype):
     service = get_drive_service()
-    file_metadata = {"name": filename, "parents": [GDRIVE_FOLDER_ID]}
+    daily_folder_id = get_daily_folder_id(service)
+    file_metadata = {"name": filename, "parents": [daily_folder_id]}
     media = MediaIoBaseUpload(io.BytesIO(file_content), mimetype=mimetype, resumable=True)
     file = service.files().create(body=file_metadata, media_body=media, fields="id, webViewLink").execute()
     print(f"上傳成功：{filename}")
     return file.get("webViewLink", "")
 
 def ts(prefix, ext):
-    return f"{prefix}_{datetime.datetime.now().strftime(chr(37)+'Y'+chr(37)+'m'+chr(37)+'d_'+chr(37)+'H'+chr(37)+'M'+chr(37)+'S')}.{ext}"
+    now = datetime.datetime.now(TW_TZ)
+    return f"{prefix}_{now.strftime('%Y%m%d_%H%M%S')}.{ext}"
 
 def dl(mid):
     with ApiClient(configuration) as c:
@@ -62,22 +82,18 @@ def handle_all(event):
 
 @handler.add(MessageEvent, message=ImageMessageContent)
 def handle_image(event):
-    if event.source.user_id not in TARGET_USER_IDS: return
     f = ts("image", "jpg")
     upload_to_drive(dl(event.message.id), f, "image/jpeg")
     reply(event.reply_token, f"圖片已備份！{f}")
 
 @handler.add(MessageEvent, message=VideoMessageContent)
 def handle_video(event):
-    if event.source.user_id not in TARGET_USER_IDS: return
-
     f = ts("video", "mp4")
     upload_to_drive(dl(event.message.id), f, "video/mp4")
     reply(event.reply_token, f"視訊已備份！{f}")
 
 @handler.add(MessageEvent, message=FileMessageContent)
 def handle_file(event):
-    if event.source.user_id not in TARGET_USER_IDS: return
     ext = event.message.file_name.rsplit(".", 1)[-1] if "." in event.message.file_name else "bin"
     f = ts("file", ext)
     upload_to_drive(dl(event.message.id), f, "application/octet-stream")
