@@ -101,14 +101,12 @@ def handle_image(event):
     name = get_display_name(event)
     f = ts("image", "jpg")
     upload_to_drive(dl(event.message.id), f, "image/jpeg", name)
-    reply(event.reply_token, f"圖片已備份！{f}")
 
 @handler.add(MessageEvent, message=VideoMessageContent)
 def handle_video(event):
     name = get_display_name(event)
     f = ts("video", "mp4")
     upload_to_drive(dl(event.message.id), f, "video/mp4", name)
-    reply(event.reply_token, f"視訊已備份！{f}")
 
 @handler.add(MessageEvent, message=FileMessageContent)
 def handle_file(event):
@@ -116,7 +114,6 @@ def handle_file(event):
     ext = event.message.file_name.rsplit(".", 1)[-1] if "." in event.message.file_name else "bin"
     f = ts("file", ext)
     upload_to_drive(dl(event.message.id), f, "application/octet-stream", name)
-    reply(event.reply_token, f"文件已備份！{f}")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
