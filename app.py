@@ -27,10 +27,26 @@ def get_drive_service():
             creds = pickle.load(f)
     return build("drive", "v3", credentials=creds)
 
-def get_daily_folder_id(service):
-    date_str = datetime.datetime.now(TW_TZ).strftime("%Y%m%d")
+def get_display_name(event):
+    try:
+        with ApiClient(configuration) as c:
+            api = MessagingApi(c)
+            uid = event.source.user_id
+            if event.source.type == "group":
+                profile = api.get_group_member_profile(event.source.group_id, uid)
+            elif event.source.type == "room":
+                profile = api.get_room_member_profile(event.source.room_id, uid)
+            else:
+                profile = api.get_profile(uid)
+            return profile.display_name
+    except Exception as e:
+        print(f"取得顯示名稱失敗：{e}")
+        return event.source.user_id or "unknown"
+
+def get_or_create_folder(service, name, parent_id):
+    safe_name = name.replace("'", "\\'")
     query = (
-        f"'{GDRIVE_FOLDER_ID}' in parents and name = '{date_str}' "
+        f"'{parent_id}' in parents and name = '{safe_name}' "
         "and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
     )
     result = service.files().list(q=query, spaces="drive", fields="files(id, name)").execute()
@@ -38,20 +54,20 @@ def get_daily_folder_id(service):
     if folders:
         return folders[0]["id"]
     folder_metadata = {
-        "name": date_str,
+        "name": name,
         "mimeType": "application/vnd.google-apps.folder",
-        "parents": [GDRIVE_FOLDER_ID],
+        "parents": [parent_id],
     }
     folder = service.files().create(body=folder_metadata, fields="id").execute()
     return folder.get("id")
 
-def upload_to_drive(file_content, filename, mimetype):
+def upload_to_drive(file_content, filename, mimetype, sender_name):
     service = get_drive_service()
-    daily_folder_id = get_daily_folder_id(service)
-    file_metadata = {"name": filename, "parents": [daily_folder_id]}
+    user_folder_id = get_or_create_folder(service, sender_name, GDRIVE_FOLDER_ID)
+    file_metadata = {"name": filename, "parents": [user_folder_id]}
     media = MediaIoBaseUpload(io.BytesIO(file_content), mimetype=mimetype, resumable=True)
     file = service.files().create(body=file_metadata, media_body=media, fields="id, webViewLink").execute()
-    print(f"上傳成功：{filename}")
+    print(f"上傳成功：{sender_name}/{filename}")
     return file.get("webViewLink", "")
 
 def ts(prefix, ext):
@@ -82,21 +98,24 @@ def handle_all(event):
 
 @handler.add(MessageEvent, message=ImageMessageContent)
 def handle_image(event):
+    name = get_display_name(event)
     f = ts("image", "jpg")
-    upload_to_drive(dl(event.message.id), f, "image/jpeg")
+    upload_to_drive(dl(event.message.id), f, "image/jpeg", name)
     reply(event.reply_token, f"圖片已備份！{f}")
 
 @handler.add(MessageEvent, message=VideoMessageContent)
 def handle_video(event):
+    name = get_display_name(event)
     f = ts("video", "mp4")
-    upload_to_drive(dl(event.message.id), f, "video/mp4")
+    upload_to_drive(dl(event.message.id), f, "video/mp4", name)
     reply(event.reply_token, f"視訊已備份！{f}")
 
 @handler.add(MessageEvent, message=FileMessageContent)
 def handle_file(event):
+    name = get_display_name(event)
     ext = event.message.file_name.rsplit(".", 1)[-1] if "." in event.message.file_name else "bin"
     f = ts("file", ext)
-    upload_to_drive(dl(event.message.id), f, "application/octet-stream")
+    upload_to_drive(dl(event.message.id), f, "application/octet-stream", name)
     reply(event.reply_token, f"文件已備份！{f}")
 
 if __name__ == "__main__":
