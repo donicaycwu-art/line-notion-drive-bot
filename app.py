@@ -11,7 +11,7 @@ from googleapiclient.http import MediaIoBaseUpload
 app = Flask(__name__)
 LINE_CHANNEL_SECRET = os.environ["LINE_CHANNEL_SECRET"]
 LINE_CHANNEL_ACCESS_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
-TARGET_USER_ID = os.environ["TARGET_USER_ID"]
+TARGET_USER_IDS = {uid.strip() for uid in os.environ["TARGET_USER_IDS"].split(",") if uid.strip()}
 GDRIVE_FOLDER_ID = os.environ["GDRIVE_FOLDER_ID"]
 TOKEN_FILE = "token.pickle"
 configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
@@ -58,18 +58,18 @@ def callback():
 
 @handler.add(MessageEvent)
 def handle_all(event):
-    print(f"User ID：{event.source.user_id}")
+    print(f"User ID：{event.source.user_id}（來源類型：{event.source.type}）")
 
 @handler.add(MessageEvent, message=ImageMessageContent)
 def handle_image(event):
-    if event.source.user_id != TARGET_USER_ID: return
+    if event.source.user_id not in TARGET_USER_IDS: return
     f = ts("image", "jpg")
     upload_to_drive(dl(event.message.id), f, "image/jpeg")
     reply(event.reply_token, f"圖片已備份！{f}")
 
 @handler.add(MessageEvent, message=VideoMessageContent)
 def handle_video(event):
-    if event.source.user_id != TARGET_USER_ID: return
+    if event.source.user_id not in TARGET_USER_IDS: return
 
     f = ts("video", "mp4")
     upload_to_drive(dl(event.message.id), f, "video/mp4")
@@ -77,7 +77,7 @@ def handle_video(event):
 
 @handler.add(MessageEvent, message=FileMessageContent)
 def handle_file(event):
-    if event.source.user_id != TARGET_USER_ID: return
+    if event.source.user_id not in TARGET_USER_IDS: return
     ext = event.message.file_name.rsplit(".", 1)[-1] if "." in event.message.file_name else "bin"
     f = ts("file", ext)
     upload_to_drive(dl(event.message.id), f, "application/octet-stream")
@@ -86,4 +86,3 @@ def handle_file(event):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
-
