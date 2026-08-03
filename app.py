@@ -81,7 +81,9 @@ def dl(mid):
 def reply(token, text):
     with ApiClient(configuration) as c:
         MessagingApi(c).reply_message(ReplyMessageRequest(reply_token=token, messages=[TextMessage(text=text)]))
-
+@app.route("/", methods=["GET"])
+def health():
+    return "OK", 200
 @app.route("/callback", methods=["POST"])
 def callback():
     sig = request.headers.get("X-Line-Signature", "")
