@@ -13,6 +13,8 @@ app = Flask(__name__)
 LINE_CHANNEL_SECRET = os.environ["LINE_CHANNEL_SECRET"]
 LINE_CHANNEL_ACCESS_TOKEN = os.environ["LINE_CHANNEL_ACCESS_TOKEN"]
 GDRIVE_FOLDER_ID = os.environ["GDRIVE_FOLDER_ID"]
+PRIVATE_FOLDER_ID = os.environ.get("PRIVATE_FOLDER_ID", "")
+PRIVATE_USER_IDS = {uid.strip() for uid in os.environ.get("PRIVATE_USER_IDS", "").split(",") if uid.strip()}
 TOKEN_FILE = "token.pickle"
 TW_TZ = ZoneInfo("Asia/Taipei")
 configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
@@ -61,13 +63,18 @@ def get_or_create_folder(service, name, parent_id):
     folder = service.files().create(body=folder_metadata, fields="id").execute()
     return folder.get("id")
 
-def upload_to_drive(file_content, filename, mimetype, sender_name):
+def upload_to_drive(file_content, filename, mimetype, sender_name, user_id):
     service = get_drive_service()
-    user_folder_id = get_or_create_folder(service, sender_name, GDRIVE_FOLDER_ID)
+    if PRIVATE_FOLDER_ID and user_id in PRIVATE_USER_IDS:
+        parent_id = PRIVATE_FOLDER_ID
+    else:
+        parent_id = GDRIVE_FOLDER_ID
+    folder_name = f"{sender_name}（{user_id}）"
+    user_folder_id = get_or_create_folder(service, folder_name, parent_id)
     file_metadata = {"name": filename, "parents": [user_folder_id]}
     media = MediaIoBaseUpload(io.BytesIO(file_content), mimetype=mimetype, resumable=True)
     file = service.files().create(body=file_metadata, media_body=media, fields="id, webViewLink").execute()
-    print(f"上傳成功：{sender_name}/{filename}")
+    print(f"上傳成功：{folder_name}/{filename}")
     return file.get("webViewLink", "")
 
 def ts(prefix, ext):
@@ -104,20 +111,20 @@ def handle_all(event):
 def handle_image(event):
     name = get_display_name(event)
     f = ts("image", "jpg")
-    upload_to_drive(dl(event.message.id), f, "image/jpeg", name)
+    upload_to_drive(dl(event.message.id), f, "image/jpeg", name, event.source.user_id)
 
 @handler.add(MessageEvent, message=VideoMessageContent)
 def handle_video(event):
     name = get_display_name(event)
     f = ts("video", "mp4")
-    upload_to_drive(dl(event.message.id), f, "video/mp4", name)
+    upload_to_drive(dl(event.message.id), f, "video/mp4", name, event.source.user_id)
 
 @handler.add(MessageEvent, message=FileMessageContent)
 def handle_file(event):
     name = get_display_name(event)
     ext = event.message.file_name.rsplit(".", 1)[-1] if "." in event.message.file_name else "bin"
     f = ts("file", ext)
-    upload_to_drive(dl(event.message.id), f, "application/octet-stream", name)
+    upload_to_drive(dl(event.message.id), f, "application/octet-stream", name, event.source.user_id)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
