@@ -45,10 +45,10 @@ def get_display_name(event):
         print(f"取得顯示名稱失敗：{e}")
         return event.source.user_id or "unknown"
 
-def get_or_create_folder(service, name, parent_id):
-    safe_name = name.replace("'", "\\'")
+def get_or_create_person_folder(service, user_id, display_name, parent_id):
+    safe_id = user_id.replace("'", "\\'")
     query = (
-        f"'{parent_id}' in parents and name = '{safe_name}' "
+        f"'{parent_id}' in parents and name contains '{safe_id}' "
         "and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
     )
     result = service.files().list(q=query, spaces="drive", fields="files(id, name)").execute()
@@ -56,7 +56,7 @@ def get_or_create_folder(service, name, parent_id):
     if folders:
         return folders[0]["id"]
     folder_metadata = {
-        "name": name,
+        "name": f"{display_name}（{user_id}）",
         "mimeType": "application/vnd.google-apps.folder",
         "parents": [parent_id],
     }
@@ -69,12 +69,11 @@ def upload_to_drive(file_content, filename, mimetype, sender_name, user_id):
         parent_id = PRIVATE_FOLDER_ID
     else:
         parent_id = GDRIVE_FOLDER_ID
-    folder_name = f"{sender_name}（{user_id}）"
-    user_folder_id = get_or_create_folder(service, folder_name, parent_id)
+    user_folder_id = get_or_create_person_folder(service, user_id, sender_name, parent_id)
     file_metadata = {"name": filename, "parents": [user_folder_id]}
     media = MediaIoBaseUpload(io.BytesIO(file_content), mimetype=mimetype, resumable=True)
     file = service.files().create(body=file_metadata, media_body=media, fields="id, webViewLink").execute()
-    print(f"上傳成功：{folder_name}/{filename}")
+    print(f"上傳成功：{sender_name}（{user_id}）/{filename}")
     return file.get("webViewLink", "")
 
 def ts(prefix, ext):
