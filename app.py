@@ -4,7 +4,7 @@ from flask import Flask, request, abort
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.messaging import Configuration, ApiClient, MessagingApi, ReplyMessageRequest, TextMessage
-from linebot.v3.webhooks import MessageEvent, ImageMessageContent, VideoMessageContent, AudioMessageContent, FileMessageContent
+from linebot.v3.webhooks import MessageEvent, ImageMessageContent, VideoMessageContent, AudioMessageContent, FileMessageContent, TextMessageContent
 from linebot.v3.messaging import MessagingApiBlob
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
@@ -105,6 +105,12 @@ def callback():
 @handler.add(MessageEvent)
 def handle_all(event):
     print(f"User ID：{event.source.user_id}（來源類型：{event.source.type}）")
+
+@handler.add(MessageEvent, message=TextMessageContent)
+def handle_text(event):
+    name = get_display_name(event)
+    f = ts("text", "txt")
+    upload_to_drive(event.message.text.encode("utf-8"), f, "text/plain; charset=utf-8", name, event.source.user_id)
 
 @handler.add(MessageEvent, message=ImageMessageContent)
 def handle_image(event):
