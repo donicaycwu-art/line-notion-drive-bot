@@ -63,6 +63,30 @@ def get_or_create_person_folder(service, user_id, display_name, parent_id):
     folder = service.files().create(body=folder_metadata, fields="id").execute()
     return folder.get("id")
 
+def get_week_key(dt):
+    year, week, _ = dt.isocalendar()
+    return f"{year}-W{week:02d}"
+
+def append_text_log(service, folder_id, sender_name, user_id, text):
+    filename = f"文字紀錄_{get_week_key(datetime.datetime.now(TW_TZ))}.txt"
+    safe_name = filename.replace("'", "\\'")
+    query = f"'{folder_id}' in parents and name = '{safe_name}' and trashed = false"
+    result = service.files().list(q=query, spaces="drive", fields="files(id)").execute()
+    files = result.get("files", [])
+    timestamp = datetime.datetime.now(TW_TZ).strftime("%Y-%m-%d %H:%M:%S")
+    new_line = f"[{timestamp}] {text}\n"
+    if files:
+        file_id = files[0]["id"]
+        existing = service.files().get_media(fileId=file_id).execute()
+        content = existing.decode("utf-8") + new_line
+        media = MediaIoBaseUpload(io.BytesIO(content.encode("utf-8")), mimetype="text/plain; charset=utf-8")
+        service.files().update(fileId=file_id, media_body=media).execute()
+    else:
+        media = MediaIoBaseUpload(io.BytesIO(new_line.encode("utf-8")), mimetype="text/plain; charset=utf-8")
+        file_metadata = {"name": filename, "parents": [folder_id]}
+        service.files().create(body=file_metadata, media_body=media, fields="id").execute()
+    print(f"文字紀錄更新：{sender_name}（{user_id}）/{filename}")
+
 def upload_to_drive(file_content, filename, mimetype, sender_name, user_id):
     service = get_drive_service()
     if PRIVATE_FOLDER_ID and user_id in PRIVATE_USER_IDS:
@@ -109,8 +133,11 @@ def handle_all(event):
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_text(event):
     name = get_display_name(event)
-    f = ts("text", "txt")
-    upload_to_drive(event.message.text.encode("utf-8"), f, "text/plain; charset=utf-8", name, event.source.user_id)
+    user_id = event.source.user_id
+    service = get_drive_service()
+    parent_id = PRIVATE_FOLDER_ID if (PRIVATE_FOLDER_ID and user_id in PRIVATE_USER_IDS) else GDRIVE_FOLDER_ID
+    folder_id = get_or_create_person_folder(service, user_id, name, parent_id)
+    append_text_log(service, folder_id, name, user_id, event.message.text)
 
 @handler.add(MessageEvent, message=ImageMessageContent)
 def handle_image(event):
